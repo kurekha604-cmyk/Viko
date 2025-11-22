@@ -1,0 +1,124 @@
+{
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "features": {}
+}/* Viko — Firebase Authentication (Email + Google) File: viko_auth_setup.jsx
+
+What this file contains:
+
+1. firebaseConfig (instructions) — where to paste your Firebase SDK config.
+
+
+2. firebaseClient — initialized Firebase app, Auth and Firestore exports (email/password + Google provider).
+
+
+3. AuthContext — React context + provider exposing user, loading, signup, login, logout, signInWithGoogle.
+
+
+4. ProtectedRoute HOC — wrapper to guard pages/components.
+
+
+5. SignUp and SignIn components — email/password forms + Google Sign-in button.
+
+
+6. How to plug into the Viko app (short instructions below).
+
+
+
+Notes / Security:
+
+Never publish your Firebase config secrets in a public repo. The Firebase config is safe to include in client code; however, service account keys must remain secret.
+
+Configure Firebase Authentication providers (Email/Password, Google) in your Firebase Console.
+
+Optionally add Firestore security rules to restrict reads/writes to authenticated users.
+
+
+INSTALL (if not done already): npm install firebase react-router-dom
+
+USAGE:
+
+Place this file in your project (e.g., src/lib/vikoAuth.jsx)
+
+Import and wrap your App with <AuthProvider> in index.jsx
+
+Use <ProtectedRoute> for pages that require auth
+
+Use useAuth() hook to access auth state
+
+
+
+---
+
+*/
+
+import React, { createContext, useContext, useEffect, useState } from "react"; import { initializeApp } from "firebase/app"; import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail, updateProfile, } from "firebase/auth"; import { getFirestore } from "firebase/firestore";
+
+// -------------------- // 1) Firebase config // -------------------- // Create a Firebase project at https://console.firebase.google.com/ // Enable Authentication providers: Email/Password and Google. // Then copy your web app config here.
+
+const firebaseConfig = { apiKey: "YOUR_API_KEY", authDomain: "YOUR_AUTH_DOMAIN", projectId: "YOUR_PROJECT_ID", storageBucket: "YOUR_STORAGE_BUCKET", messagingSenderId: "YOUR_MESSAGING_SENDER_ID", appId: "YOUR_APP_ID", };
+
+// -------------------- // 2) Initialize Firebase // -------------------- const app = initializeApp(firebaseConfig); export const auth = getAuth(app); export const firestore = getFirestore(app);
+
+// -------------------- // 3) Auth Context // -------------------- const AuthContext = createContext(null);
+
+export function useAuth() { return useContext(AuthContext); }
+
+export function AuthProvider({ children }) { const [user, setUser] = useState(null); const [loading, setLoading] = useState(true);
+
+useEffect(() => { const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => { setUser(firebaseUser); setLoading(false); }); return unsubscribe; }, []);
+
+// Email / Password signup const signup = async (email, password, displayName) => { const cred = await createUserWithEmailAndPassword(auth, email, password); // set display name if (displayName) { try { await updateProfile(cred.user, { displayName }); } catch (e) { console.warn("Profile update failed:", e); } } setUser(cred.user); return cred.user; };
+
+// Email / Password login const login = async (email, password) => { const cred = await signInWithEmailAndPassword(auth, email, password); setUser(cred.user); return cred.user; };
+
+// Google Sign-in const signInWithGoogle = async () => { const provider = new GoogleAuthProvider(); const cred = await signInWithPopup(auth, provider); setUser(cred.user); return cred.user; };
+
+const logout = async () => { await signOut(auth); setUser(null); };
+
+const resetPassword = async (email) => { return await sendPasswordResetEmail(auth, email); };
+
+const value = { user, loading, signup, login, logout, signInWithGoogle, resetPassword, };
+
+return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>; }
+
+// -------------------- // 4) ProtectedRoute HOC (react-router) // -------------------- // Example usage with react-router v6: // <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+
+export function ProtectedRoute({ children, fallback = null }) { const { user, loading } = useAuth();
+
+if (loading) { return ( <div className="min-h-screen flex items-center justify-center"> <div className="text-sm text-gray-500">Loading...</div> </div> ); }
+
+if (!user) { // Not authenticated — show fallback (e.g., login component) or null return fallback || null; }
+
+return children; }
+
+// -------------------- // 5) SignUp & SignIn components (simple, accessible) // -------------------- export function SignUp({ onSignedUp }) { const { signup, signInWithGoogle } = useAuth(); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [displayName, setDisplayName] = useState(""); const [error, setError] = useState(null); const [working, setWorking] = useState(false);
+
+const handleSubmit = async (e) => { e.preventDefault(); setError(null); setWorking(true); try { await signup(email, password, displayName); if (onSignedUp) onSignedUp(); } catch (err) { setError(err.message || "Failed to sign up"); } finally { setWorking(false); } };
+
+const handleGoogle = async () => { setWorking(true); try { await signInWithGoogle(); if (onSignedUp) onSignedUp(); } catch (err) { setError(err.message || "Google sign-in failed"); } finally { setWorking(false); } };
+
+return ( <div className="max-w-md mx-auto bg-white p-6 rounded-2xl shadow"> <h2 className="text-lg font-semibold mb-4">Create account</h2> {error && <div className="text-sm text-red-600 mb-2">{error}</div>} <form onSubmit={handleSubmit} className="space-y-3"> <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Full name" className="w-full px-3 py-2 rounded-lg border" /> <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" className="w-full px-3 py-2 rounded-lg border" /> <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" className="w-full px-3 py-2 rounded-lg border" /> <div className="flex items-center gap-2"> <button disabled={working} className="px-4 py-2 bg-violet-600 text-white rounded-lg">Sign up</button> <button type="button" onClick={handleGoogle} disabled={working} className="px-4 py-2 border rounded-lg">Sign up with Google</button> </div> </form> </div> ); }
+
+export function SignIn({ onSignedIn }) { const { login, signInWithGoogle, resetPassword } = useAuth(); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState(null); const [working, setWorking] = useState(false);
+
+const handleSubmit = async (e) => { e.preventDefault(); setWorking(true); setError(null); try { await login(email, password); if (onSignedIn) onSignedIn(); } catch (err) { setError(err.message || "Failed to sign in"); } finally { setWorking(false); } };
+
+const handleGoogle = async () => { setWorking(true); try { await signInWithGoogle(); if (onSignedIn) onSignedIn(); } catch (err) { setError(err.message || "Google sign-in failed"); } finally { setWorking(false); } };
+
+const handleReset = async () => { if (!email) return setError("Enter your email to reset password"); setWorking(true); try { await resetPassword(email); setError("Password reset email sent. Check your inbox."); } catch (err) { setError(err.message || "Reset failed"); } finally { setWorking(false); } };
+
+return ( <div className="max-w-md mx-auto bg-white p-6 rounded-2xl shadow"> <h2 className="text-lg font-semibold mb-4">Sign in</h2> {error && <div className="text-sm text-red-600 mb-2">{error}</div>} <form onSubmit={handleSubmit} className="space-y-3"> <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" className="w-full px-3 py-2 rounded-lg border" /> <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" className="w-full px-3 py-2 rounded-lg border" /> <div className="flex items-center gap-2"> <button disabled={working} className="px-4 py-2 bg-violet-600 text-white rounded-lg">Sign in</button> <button type="button" onClick={handleGoogle} disabled={working} className="px-4 py-2 border rounded-lg">Sign in with Google</button> </div> </form>
+
+<div className="mt-3 text-sm flex items-center justify-between">
+    <button onClick={handleReset} className="text-sm text-violet-600">Forgot password?</button>
+    <div className="text-xs text-gray-500">Don't have an account? Sign up</div>
+  </div>
+</div>
+
+); }
+
+// -------------------- // 6) Quick integration notes // -------------------- // index.jsx: // import React from 'react'; // import { createRoot } from 'react-dom/client'; // import App from './App'; // import { AuthProvider } from './lib/viko_auth_setup'; // // createRoot(document.getElementById('root')).render( //   <AuthProvider> //     <App /> //   </AuthProvider> // ); // // Protect routes or components: // import { ProtectedRoute } from './lib/viko_auth_setup'; // // <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} /> // // Use auth in any component: // const { user, login, signup, logout } = useAuth();
+
+// -------------------- // 7) Firestore & user profiles (optional) // -------------------- // If you want to store user profiles and link posts to UIDs, initialize Firestore (exported above) // and create a users collection on signup. Example: // import { doc, setDoc } from 'firebase/firestore'; // await setDoc(doc(firestore, 'users', cred.user.uid), { displayName, email, createdAt: Date.now() });
+
+// -------------------- // End of viko_auth_setup.jsx // --------------------
